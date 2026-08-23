@@ -7,6 +7,7 @@ from fastapi import (
     File,
     HTTPException,
     Form,
+    Depends,
 )
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,11 +18,14 @@ from app.services.transcription import (
     transcribe_audio,
 )
 from app.services.youtube import download_youtube_video
+from app.auth import router as auth_router, get_current_user
 
 
 app = FastAPI(
-    title="GenTe",
+    title="TeaserAI",
 )
+
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,6 +70,7 @@ def health():
 async def upload_video(
     file: UploadFile = File(...),
     prompt: str = Form("Summarize the video in 3 sentences."),
+    current_user: str = Depends(get_current_user),
 ):
     if not file.filename:
         raise HTTPException(
@@ -112,6 +117,7 @@ async def upload_video(
 async def youtube_video(
     youtube_url: str = Form(...),
     prompt: str = Form("Summarize the video in 3 sentences."),
+    current_user: str = Depends(get_current_user),
 ):
     video_id = uuid4().hex
     print(f"[STAGE: YouTube Download] Started for URL: {youtube_url}")
