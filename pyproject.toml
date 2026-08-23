@@ -1,0 +1,10 @@
+[project]
+name = "gente"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi[standard]>=0.128.8",
+    "google-genai>=1.47.0",
+    "python-dotenv>=1.2.1",
+    "yt-dlp>=2025.10.14",
+]

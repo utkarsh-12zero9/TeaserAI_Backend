@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+.env.*
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
+
+# FastAPI / Uvicorn logs
+*.log
+
+# Local database files (if using SQLite)
+*.db
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+
+# Ignore audio and uploads directories
+/audio
+/uploads
+/clips
