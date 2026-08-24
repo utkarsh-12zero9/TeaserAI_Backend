@@ -1,4 +1,4 @@
-import sqlite3
+from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timedelta, timezone
 import os
 import bcrypt
@@ -16,24 +16,22 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
 
 security = HTTPBearer()
-DB_PATH = "users.db"
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "teaserai")
 
-# Initialize SQLite database
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            hashed_password TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+# Initialize MongoDB Client
+client = AsyncIOMotorClient(MONGODB_URI)
+db = client[MONGODB_DB_NAME]
+users_collection = db["users"]
 
-init_db()
+# Initialize MongoDB Unique index
+@router.on_event("startup")
+async def init_db():
+    try:
+        await users_collection.create_index("email", unique=True)
+    except Exception as e:
+        print(f"Error creating unique index on email: {e}")
+
 
 # Schema definitions
 class UserRegisterSchema(BaseModel):
@@ -108,43 +106,45 @@ async def register(user_data: UserRegisterSchema):
     email = user_data.email.lower()
     hashed_pwd = hash_password(user_data.password)
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     try:
         # Check if user already exists
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-        if cursor.fetchone():
+        existing_user = await users_collection.find_one({"email": email})
+        if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email is already registered"
             )
         
         # Insert user
-        cursor.execute(
-            "INSERT INTO users (email, hashed_password) VALUES (?, ?)",
-            (email, hashed_pwd)
-        )
-        conn.commit()
-    except sqlite3.Error as e:
+        user_doc = {
+            "email": email,
+            "hashed_password": hashed_pwd,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await users_collection.insert_one(user_doc)
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error during registration: {str(e)}"
         )
-    finally:
-        conn.close()
 
     return {"message": "User registered successfully"}
 
 @router.post("/login", response_model=TokenSchema)
 async def login(user_data: UserLoginSchema):
     email = user_data.email.lower()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT hashed_password FROM users WHERE email = ?", (email,))
-    row = cursor.fetchone()
-    conn.close()
+    
+    try:
+        user = await users_collection.find_one({"email": email})
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error during login: {str(e)}"
+        )
 
-    if not row or not verify_password(user_data.password, row[0]):
+    if not user or not verify_password(user_data.password, user.get("hashed_password")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
