@@ -39,7 +39,7 @@ def extract_highlights_from_audio(audio_path: str, user_prompt: str):
         audio_content = types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3")
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             contents=[prompt, audio_content],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",

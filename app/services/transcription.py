@@ -109,7 +109,7 @@ def transcribe_audio(audio_path: str):
         """
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=[prompt, audio_file],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -167,5 +167,3 @@ def transcribe_audio(audio_path: str):
 
     all_segments.sort(key=lambda s: s["start"])
     return {"segments": all_segments}
-
-
