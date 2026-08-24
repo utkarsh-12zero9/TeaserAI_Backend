@@ -15,20 +15,91 @@ def extract_highlights_from_audio(audio_path: str, user_prompt: str):
         duration = 0.0
 
     prompt = f"""
-    You are an AI video editor.
-    Listen to the audio content in this file. The total duration of this audio file is {duration:.1f} seconds.
+        You are an expert short-form video editor.
 
-    User's requirement:
-    {user_prompt}
+        Listen to the ENTIRE audio and identify the strongest moments that could be used as teaser clips.
 
-    Your task:
-    1. Listen to the entire audio content (total length: {duration:.1f} seconds).
-    2. Identify the 3 to 5 most engaging, insightful, or interesting moments.
-    3. Select complete, meaningful timestamp intervals (start and end in seconds).
-    4. Each selected section must make sense when watched as a standalone video clip.
-    5. Each highlight clip MUST have a duration of 30 to 60 seconds (duration = end - start). Do NOT select clips shorter than 15 seconds. For long videos, select longer clips (e.g. 45 to 60 seconds).
-    6. Return the exact start and end timestamps in seconds. Timestamps MUST be absolute seconds from the start of the audio (ranging from 0.0 to {duration:.1f}). Do NOT use minutes or other units.
-    7. Return a short text summary/reason for why each clip was selected.
+        AUDIO DURATION:
+        {duration:.1f} seconds
+
+        USER REQUIREMENTS:
+        {user_prompt}
+
+        The goal is NOT to summarize the audio.
+
+        Find moments that would make someone want to watch the full video.
+
+        Prioritize:
+        - strong hooks
+        - surprising statements
+        - emotional moments
+        - humor or punchlines
+        - controversial or bold opinions
+        - important revelations
+        - memorable statements
+        - curiosity
+        - unexpected information
+        - high-energy moments
+
+        RULES:
+
+        1. Select 4–7 strong moments when the content supports it.
+        Do not force the number if there are fewer genuinely strong moments.
+
+        2. Keep clips SHORT and impactful.
+        Prefer approximately 2–10 seconds per clip.
+        Use a longer clip only when necessary to preserve the meaning of the moment.
+
+        3. Select the MINIMUM amount of speech necessary to deliver the impact.
+        Do not select long continuous sections just because they contain interesting information.
+
+        4. A clip should contain a meaningful thought, but it does NOT need to explain everything.
+        Leaving some information unanswered is desirable.
+
+        5. Avoid:
+        - introductions
+        - greetings
+        - filler
+        - slow explanations
+        - repetitive statements
+        - generic information
+        - unnecessary context
+        - moments that completely reveal the story
+
+        6. Start and end clips at natural speech boundaries.
+        Never cut in the middle of a word, phrase, or meaningful thought.
+
+        7. Use ABSOLUTE timestamps in seconds from the beginning of the audio.
+
+        8. Timestamps must be between 0.0 and {duration:.1f}.
+
+        9. The selected moments do NOT have to be chronological.
+        Arrange them in the strongest teaser order.
+
+        10. The first selected moment should be the strongest hook.
+            The final moment should preferably create curiosity, suspense, or an open loop.
+
+        11. Follow the user's requirements above all default rules.
+
+        Before returning the result, mentally review the selected moments as a teaser.
+        Remove weak, repetitive, or unnecessarily long clips.
+
+        RETURN ONLY VALID JSON:
+
+        {{
+        "clips": [
+            {{
+            "start": 12.4,
+            "end": 17.8,
+            "role": "hook"
+            }}
+        ]
+        }}
+
+        Allowed roles:
+        "hook", "context", "escalation", "revelation", "emotional_peak", "punchline", "open_loop"
+
+        Do not return explanations, summaries, or transcript text.
     """
 
     file_size_mb = os.path.getsize(audio_path) / (1024 * 1024) if os.path.exists(audio_path) else 0
@@ -76,7 +147,7 @@ def extract_highlights_from_audio(audio_path: str, user_prompt: str):
         print(f"[STAGE: Gemini Upload] File is now {audio_file.state.name}. Sending generate_content request...")
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=[prompt, audio_file],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -127,38 +198,123 @@ def find_highlights(transcript : dict, user_prompt : str):
     )
     
     prompt = f"""
-        You are an AI video editor.
+        You are an expert short-form video editor.
 
-        The user wants to create short video teasers from the transcript.
+        Your task is to select and ORDER the best moments from this long-form video to create a highly engaging teaser.
 
-        User's requirements:
+        USER REQUIREMENTS:
         {user_prompt}
 
-        Here is the timestamped transcript:
+        TIMESTAMPED TRANSCRIPT:
         {transcript_text}
 
-        Your task:
+        IMPORTANT:
+        The teaser is NOT a summary of the video.
+        It is an advertisement for the video.
 
-        1. Analyze the transcript.
-        2. Find the most interesting and engaging moments.
-        3. Follow the user's requirements when selecting the moments.
-        4. Select complete, meaningful sections rather than isolated sentences.
-        5. The selected section must make sense when watched as a standalone video clip.
-        6. Prefer strong hooks, surprising information, useful insights,
-        emotional moments, curiosity, humor, or memorable statements.
-        7. Avoid sections that require too much context from earlier parts.
-        8. Do not modify or rewrite the spoken text.
-        9. Use the timestamps from the transcript.
-        10. Return the start and end timestamps of each selected clip.
-        11. Return a short reason explaining why each clip was selected.
+        Optimize for:
+        - immediate attention
+        - curiosity
+        - emotional impact
+        - surprise
+        - humor
+        - tension
+        - strong opinions
+        - memorable statements
+        - unanswered questions
+        - viewer retention
 
-        Do NOT transcribe anything.
-        Do NOT create new timestamps.
-        Use only timestamps that exist in the provided transcript.
+        FIRST, analyze the ENTIRE transcript before selecting clips.
+
+        Then create the strongest possible teaser sequence.
+
+        RULES:
+
+        1. Select 4-8 distinct clips from different parts of the video when possible.
+
+        2. DO NOT select long continuous sections.
+        Most clips should be approximately 3–12 seconds.
+        Use longer clips only when necessary to preserve meaning.
+
+        3. Select the MINIMUM amount of speech necessary to deliver the impact.
+        Never extend a clip just to reach a duration target.
+
+        4. Prefer:
+        - shocking statements
+        - intriguing questions
+        - unexpected revelations
+        - emotional reactions
+        - funny/punchy moments
+        - controversial opinions
+        - strong conclusions
+        - statements that create curiosity
+
+        5. Avoid:
+        - slow explanations
+        - repetitive information
+        - introductions
+        - greetings
+        - filler
+        - excessive context
+        - generic statements
+        - clips that completely reveal the story
+
+        6. A clip should communicate a meaningful thought, but it does NOT need to explain everything.
+        Creating an information gap is desirable.
+
+        7. Think like a trailer editor:
+        
+        HOOK → CURIOSITY → ESCALATION → PEAK → OPEN LOOP
+
+        However, choose the structure that best fits the actual video.
+        Do NOT force this structure if another sequence is stronger.
+
+        8. The clips do NOT have to be in chronological order.
+        Arrange them in the order that creates the strongest teaser.
+
+        9. The FIRST clip must immediately capture attention.
+
+        10. The FINAL clip should preferably leave an unanswered question,
+            reveal something intriguing, or end on a memorable/punchy statement.
+            Do NOT unnecessarily resolve the entire story.
+
+        11. Avoid selecting multiple clips that communicate the same idea.
+
+        12. Start and end clips at natural speech boundaries.
+            NEVER cut:
+            - in the middle of a word
+            - in the middle of a meaningful phrase
+            - before a thought is complete
+
+        13. Use ONLY timestamps that exist in the transcript.
+            NEVER invent timestamps.
+
+        14. Do NOT rewrite or modify spoken words.
+
+        Before returning the answer, mentally watch the selected clips in the exact order.
+        Remove any clip that makes the teaser slower, repetitive, confusing, or less interesting.
+        If a clip can be shortened without losing its impact, shorten it.
+
+        RETURN ONLY JSON:
+
+        {{
+        "clips": [
+            {{
+            "start": 12.4,
+            "end": 17.8,
+            "role": "hook",
+            "reason": "Creates immediate curiosity through a surprising statement."
+            }}
+        ]
+        }}
+
+        Do not return the transcript.
+        Do not return analysis.
+        Do not return additional text.
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=[
             prompt
         ],

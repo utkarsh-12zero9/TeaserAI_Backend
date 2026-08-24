@@ -34,20 +34,66 @@ def transcribe_audio(audio_path: str):
         if audio_file.state.name == "FAILED":
             raise RuntimeError("Gemini File API processing failed.")
         print("[STAGE: Fallback Ingestion] Audio is active. Starting transcription...")
+        
         prompt = """
-        Transcribe the entire audio file.
-        Create a segment whenever there is a natural change in speech.
-        For every segment:
-        - start = timestamp in seconds
-        - end = timestamp in seconds
-        - text = exact spoken words
-        Avoid using double quotes inside the text field; use single quotes instead to keep JSON clean.
-        Do not summarize.
-        Do not skip spoken words.
+            You are an accurate audio transcription system.
+
+            Transcribe the ENTIRE audio file verbatim.
+
+            The transcript will be used for video editing, so accurate timestamps and complete speech coverage are critical.
+
+            RULES:
+
+            1. Transcribe every spoken word.
+            Do NOT summarize, paraphrase, interpret, translate, or rewrite.
+
+            2. Preserve the exact words as spoken, including:
+            - slang
+            - contractions
+            - repeated words
+            - informal speech
+            - incomplete sentences
+            - natural speech patterns
+
+            3. Do NOT add words that were not spoken.
+
+            4. Do NOT remove spoken words because they are repetitive, unclear, or grammatically incorrect.
+
+            5. Divide the transcript into natural speech segments.
+            Start a new segment at:
+            - a completed thought
+            - a sentence boundary
+            - a meaningful pause
+            - a change in topic
+            - a natural conversational break
+
+            6. Do not create unnecessarily tiny segments for individual words or short phrases.
+
+            7. Do not create excessively long segments.
+            Keep segments reasonably sized so that later video editing can identify precise moments.
+
+            8. For every segment return:
+            - start: timestamp in seconds
+            - end: timestamp in seconds
+            - text: exact spoken words
+
+            9. Timestamps must correspond to the actual audio.
+            Do not invent or estimate timestamps from the text.
+
+            10. Segments must be chronological and must not overlap.
+
+            11. Do not skip any spoken content between segments.
+
+            12. Do not include summaries, explanations, or analysis.
+
+            13. Preserve the original language of the speech.
+            Do not translate it.
+
+            14. Return ONLY the transcription using the required JSON schema.
         """
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=[prompt, audio_file],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -96,17 +142,65 @@ def transcribe_audio(audio_path: str):
             audio_file = client.files.get(name=audio_file.name)
         if audio_file.state.name == "FAILED":
             raise RuntimeError("Gemini File API processing failed.")
+        
         prompt = """
-        Transcribe the entire audio file.
-        Create a segment whenever there is a natural change in speech.
-        For every segment:
-        - start = timestamp in seconds
-        - end = timestamp in seconds
-        - text = exact spoken words
-        Avoid using double quotes inside the text field; use single quotes instead to keep JSON clean.
-        Do not summarize.
-        Do not skip spoken words.
-        """
+            You are an accurate audio transcription system.
+
+            Transcribe the ENTIRE audio file verbatim.
+
+            Your output will be used by a video editing system to locate precise moments in the audio, so timestamp accuracy and transcript completeness are extremely important.
+
+            RULES:
+
+            1. Transcribe every spoken word.
+            Do NOT summarize, paraphrase, interpret, or rewrite anything.
+
+            2. Preserve the speaker's actual words exactly as spoken, including:
+            - contractions
+            - slang
+            - informal language
+            - repeated words
+            - incomplete sentences
+            - natural speech patterns
+
+            3. Do NOT add words that were not spoken.
+
+            4. Do NOT remove spoken words merely because they are repetitive or grammatically incorrect.
+
+            5. Include meaningful filler words when they are clearly spoken and useful for preserving accurate timing.
+
+            6. Divide the transcript into natural speech segments.
+            Create a new segment when there is:
+            - a completed thought
+            - a sentence boundary
+            - a meaningful pause
+            - a clear change in topic
+            - a natural conversational break
+
+            7. Avoid creating extremely small segments for every few words.
+            Prefer segments that contain a complete meaningful thought, while keeping timestamps precise enough for video editing.
+
+            8. Every segment MUST contain:
+            - start: start timestamp in seconds
+            - end: end timestamp in seconds
+            - text: exact spoken words in that interval
+
+            9. Timestamps must be accurate to the audio.
+            Do not estimate timestamps based only on sentence length.
+
+            10. Segments must be chronological and must not overlap.
+
+            11. Do not skip any portion of spoken content between segments.
+
+            12. Do not include descriptions of sounds, background music, or non-speech events unless they are explicitly spoken.
+
+            13. Preserve the original language of the speech.
+                Do not translate the transcript.
+
+            14. Return ONLY the transcription in the required JSON schema.
+
+            Accuracy is more important than producing fewer segments.
+            """
         try:
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
