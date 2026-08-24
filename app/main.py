@@ -9,6 +9,9 @@ from fastapi import (
     Form,
     Depends,
 )
+from fastapi.responses import StreamingResponse
+import json
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 
 import os
@@ -74,6 +77,21 @@ PIPELINE_STATUS = {}
 async def get_pipeline_status(video_id: str):
     return PIPELINE_STATUS.get(video_id, {"step": "idle", "percent": 0})
 
+@app.get("/videos/{video_id}/status/stream")
+async def stream_pipeline_status(video_id: str):
+    async def event_generator():
+        last_status = None
+        # Keep track of inactivity/timeout to avoid hanging forever
+        for _ in range(1200): # 10 minutes max duration
+            status = PIPELINE_STATUS.get(video_id, {"step": "idle", "percent": 0})
+            if status != last_status:
+                last_status = status
+                yield f"data: {json.dumps(status)}\n\n"
+            if status.get("step") == "clipping_teaser" and status.get("percent") == 100:
+                break
+            await asyncio.sleep(0.5)
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.post("/videos/upload")
 async def upload_video(
     file: UploadFile = File(...),
@@ -120,21 +138,12 @@ async def upload_video(
             detail=f"Failed to save uploaded file: {str(e)}"
         )
 
-    return await process_video_pipeline(video_id, video_path, filename_to_return, prompt)
+    return await asyncio.to_thread(process_video_pipeline, video_id, video_path, filename_to_return, prompt)
 
-
-@app.post("/videos/youtube")
-async def youtube_video(
-    youtube_url: str = Form(...),
-    prompt: str = Form("Summarize the video in 3 sentences."),
-    video_id: str = Form(None),
-    current_user: str = Depends(get_current_user),
-):
+def process_youtube_pipeline(youtube_url: str, prompt: str, video_id: str):
     from app.services.youtube import download_youtube_audio_only, download_youtube_sections
     import time
     
-    if not video_id:
-        video_id = uuid4().hex
     t_start = time.perf_counter()
     print(f"[STAGE: YouTube Audio Ingestion] Started for URL: {youtube_url}")
     
@@ -270,11 +279,24 @@ async def youtube_video(
     }
 
 
-async def process_video_pipeline(video_id: str, video_path: Path, filename_to_return: str, prompt: str):
+@app.post("/videos/youtube")
+async def youtube_video(
+    youtube_url: str = Form(...),
+    prompt: str = Form("Summarize the video in 3 sentences."),
+    video_id: str = Form(None),
+    current_user: str = Depends(get_current_user),
+):
+    if not video_id:
+        video_id = uuid4().hex
+    return await asyncio.to_thread(process_youtube_pipeline, youtube_url, prompt, video_id)
+
+
+def process_video_pipeline(video_id: str, video_path: Path, filename_to_return: str, prompt: str):
     # extract audio
     audio_filename = f"{video_id}.mp3"
     audio_path = AUDIO_DIR / audio_filename
 
+    PIPELINE_STATUS[video_id] = {"step": "extracting_audio", "percent": 10}
     print("[STAGE: Audio Extraction] Started")
     try:
         try:
@@ -287,51 +309,67 @@ async def process_video_pipeline(video_id: str, video_path: Path, filename_to_re
             str(audio_path),
             bitrate=bitrate
         )
+        PIPELINE_STATUS[video_id] = {"step": "extracting_audio", "percent": 100}
         print("[STAGE: Audio Extraction] SUCCESS")
     except Exception as e:
+        PIPELINE_STATUS.pop(video_id, None)
         print(f"[STAGE: Audio Extraction] FAILURE: {str(e)}")
         raise e
 
     # 1-pass direct audio highlight analysis
+    PIPELINE_STATUS[video_id] = {"step": "analyzing_moments", "percent": 20}
     print("[STAGE: 1-Pass Direct Audio Highlight Extraction] Started")
     try:
         highlights = extract_highlights_from_audio(
             str(audio_path),
             prompt
         )
+        PIPELINE_STATUS[video_id] = {"step": "analyzing_moments", "percent": 100}
         print("[STAGE: 1-Pass Direct Audio Highlight Extraction] SUCCESS")
     except Exception as e:
         print(f"[STAGE: 1-Pass Direct Audio Highlight Extraction] FAILURE: {str(e)}. Falling back to transcription pipeline...")
         try:
+            PIPELINE_STATUS[video_id] = {"step": "speech_to_text", "percent": 40}
             transcript = transcribe_audio(str(audio_path))
+            PIPELINE_STATUS[video_id] = {"step": "speech_to_text", "percent": 100}
+            
+            PIPELINE_STATUS[video_id] = {"step": "analyzing_moments", "percent": 70}
             highlights = find_highlights(transcript, prompt)
+            PIPELINE_STATUS[video_id] = {"step": "analyzing_moments", "percent": 100}
         except Exception as fallback_err:
+            PIPELINE_STATUS.pop(video_id, None)
             print(f"[STAGE: Fallback] FAILURE: {str(fallback_err)}")
             raise fallback_err
 
     print("Highlights found:", highlights)
 
     # clip
+    PIPELINE_STATUS[video_id] = {"step": "clipping_teaser", "percent": 20}
     print("[STAGE: Video Clipping] Started")
     try:
         clips = create_clips(
             str(video_path),
             highlights
         )
+        PIPELINE_STATUS[video_id] = {"step": "clipping_teaser", "percent": 75}
         print("[STAGE: Video Clipping] SUCCESS")
     except Exception as e:
+        PIPELINE_STATUS.pop(video_id, None)
         print(f"[STAGE: Video Clipping] FAILURE: {str(e)}")
         raise e
 
     # merge clips
+    PIPELINE_STATUS[video_id] = {"step": "clipping_teaser", "percent": 85}
     print("[STAGE: Teaser Generation/Merge] Started")
     try:
         teaser_url = merge_clips(
             video_id,
             clips,
         )
+        PIPELINE_STATUS[video_id] = {"step": "clipping_teaser", "percent": 100}
         print("[STAGE: Teaser Generation/Merge] SUCCESS")
     except Exception as e:
+        PIPELINE_STATUS.pop(video_id, None)
         print(f"[STAGE: Teaser Generation/Merge] FAILURE: {str(e)}")
         raise e
 
