@@ -133,7 +133,8 @@ def split_audio_into_chunks(
 
 def extract_audio(
     video_path: str,
-    audio_path: str
+    audio_path: str,
+    bitrate: str = "32k"
 ) -> None:
 
     command = [
@@ -154,6 +155,9 @@ def extract_audio(
 
         "-ac",
         "1",
+
+        "-b:a",
+        bitrate,
 
         audio_path,
     ]
