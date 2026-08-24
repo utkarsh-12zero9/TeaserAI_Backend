@@ -98,6 +98,10 @@ def merge_clips(
     concat_file = video_clips_dir / "concat.txt"
     teaser_path = video_clips_dir / "teaser.mp4"
 
+    total_duration = sum(float(clip.get("duration", 0)) for clip in clips)
+    fade_duration = min(0.5, total_duration / 2)
+    fade_out_start = max(0, total_duration - fade_duration)
+
     concat_file.write_text(
         "\n".join(
             f"file '{Path(clip['clip_url']).name}'"
@@ -115,8 +119,25 @@ def merge_clips(
         "0",
         "-i",
         str(concat_file),
-        "-c",
-        "copy",
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-vf",
+        f"fade=t=in:st=0:d={fade_duration},fade=t=out:st={fade_out_start}:d={fade_duration}",
+        "-af",
+        f"afade=t=in:st=0:d={fade_duration},afade=t=out:st={fade_out_start}:d={fade_duration}",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "22",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-shortest",
         "-movflags",
         "+faststart",
         str(teaser_path),
@@ -128,31 +149,7 @@ def merge_clips(
         text=True,
     )
 
-    if result.returncode != 0:
-        # Fallback to ultrafast merge if copy concat fails
-        fallback_command = [
-            get_ffmpeg_path(),
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat_file),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-c:a",
-            "aac",
-            "-movflags",
-            "+faststart",
-            str(teaser_path),
-        ]
-        fallback_result = subprocess.run(fallback_command, capture_output=True, text=True)
-        if fallback_result.returncode != 0:
-            raise RuntimeError(
-                f"FFmpeg merge failed:\n{fallback_result.stderr}"
-            )
+    if result.returncode != 0 or not teaser_path.exists() or teaser_path.stat().st_size == 0:
+        raise RuntimeError(f"FFmpeg merge failed:\n{result.stderr}")
 
     return f"/clips/{video_id}/teaser.mp4"
