@@ -25,30 +25,43 @@ def create_single_clip(index: int, highlight: dict, video_path: str, video_clips
     # If this is a pre-clipped local segment from YouTube, we seek starting at 0
     seek_start = 0.0 if highlight.get("local_path") else start
 
+    # Calculate dynamic fade duration (max 0.5s, adjusted for very short clips)
+    fade_dur = min(0.5, duration / 2.0)
+    video_filter = f"fade=t=in:st=0:d={fade_dur:.3f},fade=t=out:st={duration - fade_dur:.3f}:d={fade_dur:.3f}"
+    audio_filter = f"afade=t=in:ss=0:d={fade_dur:.3f},afade=t=out:st={duration - fade_dur:.3f}:d={fade_dur:.3f}"
+
     command = [
         get_ffmpeg_path(),
         "-y",
         "-ss", str(seek_start),
         "-i", source_path,
         "-t", str(duration),
-        "-c", "copy",
+        "-vf", video_filter,
+        "-af", audio_filter,
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "22",
+        "-c:a", "aac",
         "-avoid_negative_ts", "make_zero",
         str(clip_path),
     ]
 
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0 or not clip_path.exists() or clip_path.stat().st_size == 0:
-        # Fast encoding fallback if stream copy fails
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        # Fallback if audio filter fails (e.g. video has no audio track)
         fallback_command = [
             get_ffmpeg_path(),
             "-y",
             "-ss", str(seek_start),
             "-i", source_path,
             "-t", str(duration),
+            "-vf", video_filter,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "22",
-            "-c:a", "aac",
+            "-an",
+            "-avoid_negative_ts", "make_zero",
             str(clip_path),
         ]
         subprocess.run(fallback_command, check=True)
