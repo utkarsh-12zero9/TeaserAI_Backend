@@ -23,6 +23,11 @@ from app.services.transcription import (
 )
 from app.services.youtube import download_youtube_video
 from app.auth import router as auth_router, get_current_user
+from app.services.user_teaser import (
+    init_user_teasers_db,
+    save_last_generated_teaser,
+    get_last_generated_teaser,
+)
 
 
 app = FastAPI(
@@ -30,6 +35,11 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+
+
+@app.on_event("startup")
+async def startup_db_init():
+    await init_user_teasers_db()
 
 allowed_origins = [
     "http://localhost:3000",
@@ -102,6 +112,15 @@ async def stream_pipeline_status(video_id: str):
             await asyncio.sleep(0.5)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+@app.get("/videos/last-generated")
+async def get_user_last_generated_teaser(current_user: str = Depends(get_current_user)):
+    """
+    Retrieves the logged-in user's most recently generated teaser from MongoDB.
+    """
+    teaser = await get_last_generated_teaser(current_user)
+    return {"teaser": teaser}
+
+
 @app.post("/videos/upload")
 async def upload_video(
     file: UploadFile = File(...),
@@ -148,7 +167,12 @@ async def upload_video(
             detail=f"Failed to save uploaded file: {str(e)}"
         )
 
-    return await asyncio.to_thread(process_video_pipeline, video_id, video_path, filename_to_return, prompt)
+    result = await asyncio.to_thread(process_video_pipeline, video_id, video_path, filename_to_return, prompt)
+    try:
+        await save_last_generated_teaser(current_user, result)
+    except Exception as e:
+        print(f"[MongoDB] Failed to save last generated teaser: {e}")
+    return result
 
 def process_youtube_pipeline(youtube_url: str, prompt: str, video_id: str):
     from app.services.youtube import download_youtube_audio_only, download_youtube_sections
@@ -298,7 +322,12 @@ async def youtube_video(
 ):
     if not video_id:
         video_id = uuid4().hex
-    return await asyncio.to_thread(process_youtube_pipeline, youtube_url, prompt, video_id)
+    result = await asyncio.to_thread(process_youtube_pipeline, youtube_url, prompt, video_id)
+    try:
+        await save_last_generated_teaser(current_user, result)
+    except Exception as e:
+        print(f"[MongoDB] Failed to save last generated teaser: {e}")
+    return result
 
 
 def process_video_pipeline(video_id: str, video_path: Path, filename_to_return: str, prompt: str):
