@@ -1,4 +1,5 @@
 import yt_dlp
+import os
 from pathlib import Path
 from app.services.video import get_ffmpeg_path
 
@@ -11,6 +12,26 @@ class QuietLogger:
         pass
     def error(self, msg):
         pass
+
+
+def get_available_browsers() -> list[str]:
+    """
+    Returns only the browsers whose profile directories actually exist on this system.
+    This prevents yt-dlp from throwing errors on uninstalled browsers like Opera.
+    """
+    local_app = os.environ.get('LOCALAPPDATA', '')
+    appdata = os.environ.get('APPDATA', '')
+
+    browser_paths = {
+        'chrome': os.path.join(local_app, 'Google', 'Chrome', 'User Data'),
+        'edge': os.path.join(local_app, 'Microsoft', 'Edge', 'User Data'),
+        'brave': os.path.join(local_app, 'BraveSoftware', 'Brave-Browser', 'User Data'),
+        'firefox': os.path.join(appdata, 'Mozilla', 'Firefox', 'Profiles'),
+        'opera': os.path.join(appdata, 'Opera Software', 'Opera Stable'),
+    }
+
+    available = [name for name, path in browser_paths.items() if os.path.exists(path)]
+    return available
 
 
 def download_youtube_video(url: str, output_dir: Path, video_id: str) -> str:
@@ -46,7 +67,7 @@ def download_youtube_video(url: str, output_dir: Path, video_id: str) -> str:
         # Anti-bot bypass configurations
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web']
+                'player_client': ['tv_embedded', 'android_creator', 'android', 'web']
             }
         },
         'geo_bypass': True,
@@ -63,9 +84,6 @@ def download_youtube_video(url: str, output_dir: Path, video_id: str) -> str:
         cookie_file = Path("cookies.txt")
         if cookie_file.exists():
             ydl_opts['cookiefile'] = str(cookie_file.resolve())
-        cookie_file = Path("cookies.txt")
-        if cookie_file.exists():
-            ydl_opts['cookiefile'] = str(cookie_file.resolve())
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             ext = info.get('ext', 'mp4')
@@ -78,8 +96,8 @@ def download_youtube_video(url: str, output_dir: Path, video_id: str) -> str:
     except Exception as direct_err:
         last_exception = direct_err
 
-    # 2. Fallback to browser cookies if direct download fails due to anti-bot checks
-    browsers_to_try = ['chrome', 'brave', 'edge', 'firefox', 'opera']
+    # 2. Fallback to installed browser cookies only (filters out missing browsers like Opera)
+    browsers_to_try = get_available_browsers()
     for browser in browsers_to_try:
         current_opts = ydl_opts.copy()
         current_opts['cookiesfrombrowser'] = (browser,)
@@ -129,17 +147,27 @@ def download_youtube_audio_only(url: str, output_dir: Path, video_id: str, audio
         'logger': QuietLogger(),
         'updatetime': False,
         'restrictfilenames': True,
+        'restrictfilenames': True,
         'windowsfilenames': True,
         'js_runtimes': {'node': {}},
         'remote_components': ['ejs:github'],
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv_embedded', 'android_creator', 'android', 'web']
+            }
+        },
+        'geo_bypass': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
     }
     if cookie_file:
         ydl_opts['cookiefile'] = cookie_file
 
     try:
-        cookie_file = Path("cookies.txt")
-        if cookie_file.exists():
-            ydl_opts['cookiefile'] = str(cookie_file.resolve())
         cookie_file = Path("cookies.txt")
         if cookie_file.exists():
             ydl_opts['cookiefile'] = str(cookie_file.resolve())
@@ -164,8 +192,8 @@ def download_youtube_audio_only(url: str, output_dir: Path, video_id: str, audio
     except Exception as direct_err:
         last_exception = direct_err
 
-    # Try fallback browsers
-    browsers_to_try = ['chrome', 'brave', 'edge', 'firefox', 'opera']
+    # Try fallback browsers (only installed browsers)
+    browsers_to_try = get_available_browsers()
     for browser in browsers_to_try:
         current_opts = ydl_opts.copy()
         current_opts['cookiesfrombrowser'] = (browser,)
@@ -263,7 +291,7 @@ def download_youtube_sections(url: str, output_dir: Path, video_id: str, highlig
             'force_keyframes_at_cuts': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web']
+                    'player_client': ['tv_embedded', 'android_creator', 'android', 'web']
                 }
             },
             'geo_bypass': True,
@@ -278,15 +306,38 @@ def download_youtube_sections(url: str, output_dir: Path, video_id: str, highlig
         cookie_file = Path("cookies.txt")
         if cookie_file.exists():
             ydl_opts['cookiefile'] = str(cookie_file.resolve())
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            ext = info.get('ext', 'mp4')
-            final_path = output_dir / f"{video_id}_sec_{group_idx}.{ext}"
-            if not final_path.exists():
-                for file_path in output_dir.glob(f"{video_id}_sec_{group_idx}.*"):
-                    if file_path.is_file() and file_path.suffix.lower() in {'.mp4', '.mkv', '.webm', '.mov'}:
-                        return str(file_path), start
-            return str(final_path), start
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                ext = info.get('ext', 'mp4')
+                final_path = output_dir / f"{video_id}_sec_{group_idx}.{ext}"
+                if not final_path.exists():
+                    for file_path in output_dir.glob(f"{video_id}_sec_{group_idx}.*"):
+                        if file_path.is_file() and file_path.suffix.lower() in {'.mp4', '.mkv', '.webm', '.mov'}:
+                            return str(file_path), start
+                return str(final_path), start
+        except Exception as direct_err:
+            sec_err = direct_err
+
+        # Fallback to installed browsers
+        for browser in get_available_browsers():
+            current_opts = ydl_opts.copy()
+            current_opts['cookiesfrombrowser'] = (browser,)
+            try:
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    ext = info.get('ext', 'mp4')
+                    final_path = output_dir / f"{video_id}_sec_{group_idx}.{ext}"
+                    if not final_path.exists():
+                        for file_path in output_dir.glob(f"{video_id}_sec_{group_idx}.*"):
+                            if file_path.is_file() and file_path.suffix.lower() in {'.mp4', '.mkv', '.webm', '.mov'}:
+                                return str(file_path), start
+                    return str(final_path), start
+            except Exception as be:
+                sec_err = be
+                continue
+
+        raise sec_err or RuntimeError(f"Failed to download video section {group_idx}")
 
     # Run downloads in parallel (max 3 workers)
     with ThreadPoolExecutor(max_workers=3) as executor:
