@@ -120,6 +120,7 @@ async def get_user_last_generated_teaser(current_user: str = Depends(get_current
     teaser = await get_last_generated_teaser(current_user)
     return {"teaser": teaser}
 
+MAX_UPLOAD_SIZE = 1024 * 1024 * 1024  # 1 GB in bytes
 
 @app.post("/videos/upload")
 async def upload_video(
@@ -155,11 +156,26 @@ async def upload_video(
     filename_to_return = file.filename
 
     print(f"[STAGE: File Upload] Started saving file: {filename_to_return}")
+    uploaded_bytes = 0
     try:
         with open(video_path, "wb") as output:
             while chunk := await file.read(1024 * 1024):
+                uploaded_bytes += len(chunk)
+                if uploaded_bytes > MAX_UPLOAD_SIZE:
+                    output.close()
+                    if video_path.exists():
+                        try:
+                            video_path.unlink()
+                        except Exception:
+                            pass
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Video file exceeds the maximum allowed size limit of 1GB."
+                    )
                 output.write(chunk)
         print(f"[STAGE: File Upload] SUCCESS. Saved to {video_path}")
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[STAGE: File Upload] FAILURE: {str(e)}")
         raise HTTPException(
